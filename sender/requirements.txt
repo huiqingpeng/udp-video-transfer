@@ -1,0 +1,6 @@
+# UDP Sender Python Dependencies
+# 当前版本无外部依赖，仅使用 Python 标准库
+
+# 如后续需要扩展，可添加：
+# - 数据处理：numpy (可选)
+# - 日志增强：colorlog (可选)
