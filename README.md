@@ -1,49 +1,60 @@
 # UDP Video Transfer System
 
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 自定义 UDP 视频传输协议 v1.1 实现，支持多路 H.265/HEVC 视频流的实时传输。
 
 ## 项目概述
 
 本项目实现了一个完整的 UDP 视频传输系统，分为发送端和接收端：
 
-- **发送端**：Python + FFmpeg，运行于 x86 Linux
-- **接收端**：C++，运行于 Jetson Orin Nano 等嵌入式平台
+| 组件 | 语言 | 平台 | 说明 |
+|------|------|------|------|
+| **发送端** | Python | x86 Linux | FFmpeg 编码 + UDP 传输 |
+| **发送端 (C++)** | C++17 | 跨平台 | 备选方案 |
+| **接收端** | C++17 | Jetson / 嵌入式 | 多路并发接收 |
 
 ### 主要特性
 
-- 协议 v1.1：30 字节协议头，CRC-16/IBM 校验
-- 多路并发：支持 4 路独立通道同时收发
-- AU 重组：支持乱序和超时处理
-- IDR 恢复状态机：自动检测丢包并恢复
-- GStreamer 可选：无 GStreamer 依赖时仍可正常编译运行
+- ✅ **协议 v1.1**：30 字节协议头，CRC-16/IBM 校验
+- ✅ **多路并发**：支持 4 路独立通道同时收发
+- ✅ **AU 重组**：支持乱序接收和超时处理
+- ✅ **IDR 恢复状态机**：自动检测丢包并等待 IDR 恢复
+- ✅ **GStreamer 可选**：无 GStreamer 依赖时仍可正常编译运行（file 模式）
+- ✅ **AU Dump 调试**：用于协议层一致性验证
 
 ### 已验证性能
 
-| 分辨率 | 帧率 | 通道数 | 码率 | 测试结果 |
-|--------|------|--------|------|----------|
-| 640×480 | 25fps | 4路 | 2Mbps | ✅ 100% 数据完整 |
-| 1600×1200 | 25fps | 4路 | 4Mbps | ✅ 100% 数据完整 |
+| 分辨率 | 帧率 | 通道数 | 码率 | GStreamer | 测试结果 |
+|--------|------|--------|------|-----------|----------|
+| 640×480 | 25fps | 4路 | 2Mbps | 有 | ✅ 100% 数据完整 |
+| 1600×1200 | 25fps | 4路 | 4Mbps | 有 | ✅ 100% 数据完整 |
+| 1600×1200 | 25fps | 4路 | 4Mbps | 无 | ✅ 100% 数据完整 |
 
 ## 快速开始
 
 ### 发送端
 
 ```bash
-# 安装依赖（仅需 FFmpeg）
+# 安装依赖（仅需 FFmpeg + Python 3）
 sudo apt install ffmpeg python3
+
+# 克隆仓库
+git clone https://github.com/huiqingpeng/udp-video-transfer.git
+cd udp-video-transfer
 
 # 单路发送
 cd sender
 python3 udp_sender.py -i test.mp4 --dest-ip 192.168.8.136 -c 0
 
-# 多路发送
+# 多路发送（4路并发）
 ./multi_channel_send.sh -i test.mp4 --dest-ip 192.168.8.136 --channels 0,1,2,3
 ```
 
 ### 接收端
 
 ```bash
-# 编译
+# 编译（自动检测 GStreamer）
 cd receiver
 mkdir build && cd build
 cmake .. && make -j$(nproc)
@@ -51,30 +62,53 @@ cmake .. && make -j$(nproc)
 # 单路接收
 ./receiver -c 0 -o ./dump --mode file
 
-# 多路接收
+# 多路接收（4路并发）
+./receiver --channels 0,1,2,3 -o ./dump --mode file
+
+# 解码显示（需要 GStreamer）
+./receiver -c 0 --mode decode
+```
+
+### 无 GStreamer 环境
+
+```bash
+# 强制禁用 GStreamer 编译
+cmake .. -DDISABLE_GSTREAMER=ON
+make -j$(nproc)
+
+# 运行（仅 file 模式可用）
 ./receiver --channels 0,1,2,3 -o ./dump --mode file
 ```
 
 ## 目录结构
 
 ```
-udp_video_project/
-├── sender/                    # 发送端
-│   ├── udp_sender.py         # 主程序
-│   ├── multi_channel_send.sh # 多路脚本
-│   └── requirements.txt      # Python 依赖（空）
+udp-video-transfer/
+├── README.md
+├── CLAUDE.md                  # Claude Code 工作说明
 │
-├── receiver/                  # 接收端
-│   ├── CMakeLists.txt        # 构建配置
+├── sender/                    # Python 发送端
+│   ├── udp_sender.py         # 主程序
+│   ├── multi_channel_send.sh # 多路并发脚本
+│   └── requirements.txt      # Python 依赖（无第三方依赖）
+│
+├── sender_cpp/                # C++ 发送端（备选）
+│   ├── CMakeLists.txt
+│   ├── include/
+│   └── src/
+│
+├── receiver/                  # C++ 接收端
+│   ├── CMakeLists.txt
 │   ├── include/              # 头文件
 │   └── src/                  # 源文件
 │
-├── docs/                      # 文档
+├── docs/                      # 技术文档
 │   ├── SENDER_README.md      # 发送端详细文档
 │   ├── RECEIVER_README.md    # 接收端详细文档
 │   └── custom_udp_video_protocol_v1.1.md  # 协议规范
 │
-└── README.md                  # 本文件
+└── tools/                     # 工具脚本
+    └── compare_au_dump.py    # AU Dump 对比工具
 ```
 
 ## 协议说明
@@ -109,41 +143,51 @@ udp_video_project/
 
 ### 发送端
 
-| 项目 | 要求 |
-|------|------|
-| Python | 3.7+ |
-| FFmpeg | 4.0+ (支持 libx265) |
-| 操作系统 | Linux / macOS / Windows |
+| 项目 | 要求 | 说明 |
+|------|------|------|
+| Python | 3.7+ | 无第三方依赖 |
+| FFmpeg | 4.0+ | 需支持 libx265 编码器 |
+| 操作系统 | Linux / macOS / Windows | 跨平台兼容 |
 
 ### 接收端
 
-| 项目 | 要求 |
+| 项目 | 最低要求 | 推荐配置 |
+|------|----------|----------|
+| 编译器 | GCC 7+ (C++17) | GCC 9+ |
+| CMake | 3.16+ | 3.20+ |
+| GStreamer | 1.14+ (可选) | 1.16+ (Jetson) |
+| 操作系统 | Linux | Ubuntu 20.04+ |
+
+## 详细文档
+
+| 文档 | 说明 |
 |------|------|
-| 编译器 | GCC 7+ (C++17) |
-| CMake | 3.16+ |
-| GStreamer | 1.14+ (可选，用于解码) |
-| 操作系统 | Linux |
+| [发送端文档](docs/SENDER_README.md) | 编译、使用、调优指南 |
+| [接收端文档](docs/RECEIVER_README.md) | 移植、配置、故障排查 |
+| [协议规范](docs/custom_udp_video_protocol_v1.1.md) | 完整协议定义 |
 
-## 文档
+## 开发里程碑
 
-- [发送端详细文档](docs/SENDER_README.md)
-- [接收端详细文档](docs/RECEIVER_README.md)
-- [协议规范](docs/custom_udp_video_protocol_v1.1.md)
-
-## 开发阶段
-
-- [x] M1：单路最小可用链路
-- [x] M2：IDR 恢复状态机
-- [x] M3：实时解码验证
-- [x] M4：4路并发
-- [x] M5：GStreamer 可选化
+| 阶段 | 功能 | 状态 |
+|------|------|------|
+| M1 | 单路最小可用链路 | ✅ 完成 |
+| M2 | IDR 恢复状态机 | ✅ 完成 |
+| M3 | 实时解码验证 | ✅ 完成 |
+| M4 | 4路并发 | ✅ 完成 |
+| M5 | GStreamer 可选化 | ✅ 完成 |
 
 ## 版本历史
 
-- **v1.2.0** (2026-04-02)：GStreamer 可选化
-- **v1.1.0** (2026-04-02)：多路并发、AU Dump
-- **v1.0.0** (2026-04-01)：初始版本
+| 版本 | 日期 | 更新内容 |
+|------|------|----------|
+| v1.2.0 | 2026-04-02 | GStreamer 可选化，无依赖可编译运行 |
+| v1.1.0 | 2026-04-02 | 多路并发、AU Dump 调试、故障注入 |
+| v1.0.0 | 2026-04-01 | 初始版本，单路收发 + 解码 |
 
 ## License
 
-MIT
+MIT License
+
+---
+
+**GitHub**: https://github.com/huiqingpeng/udp-video-transfer
